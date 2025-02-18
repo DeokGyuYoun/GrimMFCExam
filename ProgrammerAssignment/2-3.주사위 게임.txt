@@ -1,0 +1,37 @@
+#include <string>
+#include <vector>
+
+using namespace std;
+
+int solution(int a, int b, int c, int d) {
+    int count[7] = {0}; // 주사위 숫자의 개수를 저장하는 배열 (1~6 사용)
+    count[a]++; count[b]++; count[c]++; count[d]++;
+    
+    for (int i = 1; i <= 6; ++i) {
+        if (count[i] == 4) 
+          return 1111 * i;
+        if (count[i] == 3) {
+            for (int j = 1; j <= 6; ++j) {
+                if (count[j] == 1) 
+                  return (10 * i + j) * (10 * i + j);
+            }
+        }
+        if (count[i] == 2) {
+            for (int j = 1; j <= 6; ++j) {
+                if (i != j && count[j] == 2) 
+                  return (i + j) * abs(i - j);
+                if (i != j && count[j] == 1) {
+                    for (int k = 1; k <= 6; ++k) {
+                        if (count[k] == 1 && j != k) 
+                          return j * k;
+                    }
+                }
+            }
+        }
+    }
+    int minVal = a;
+    if (b < minVal) minVal = b;
+    if (c < minVal) minVal = c;
+    if (d < minVal) minVal = d;
+    return minVal;
+}

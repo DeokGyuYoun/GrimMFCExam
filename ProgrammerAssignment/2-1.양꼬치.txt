@@ -1,0 +1,20 @@
+1번
+
+#include <string>
+#include <vector>
+
+using namespace std;
+int Calc(int n, int k) {
+    int lamb_price = 12000;
+    int drink_price = 2000;
+    int service_drinks = n / 10;
+    
+    int total_cost = (n * lamb_price) + (k * drink_price) - (service_drinks * drink_price);
+    return total_cost;
+}
+
+int solution(int n, int k) {
+    int answer = 0;
+    answer = Calc(n,k);
+    return answer;
+}
