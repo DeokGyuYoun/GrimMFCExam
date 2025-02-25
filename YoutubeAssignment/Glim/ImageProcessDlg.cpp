@@ -8,6 +8,7 @@
 #include "GlimDlg.h"
 #include "random"
 #include "chrono"
+#include <algorithm>
 
 
 // ImageProcessDlg 대화 상자
@@ -17,6 +18,8 @@ IMPLEMENT_DYNAMIC(ImageProcessDlg, CDialogEx)
 ImageProcessDlg::ImageProcessDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_ImageProcessDlg, pParent)
 {
+	WindowWidth = 600;
+	WindowHeight = 345;
 	m_bDragging = false;
 	m_SelectedCircleIndex = -1;
 	m_bStopThread = false;
@@ -53,7 +56,22 @@ END_MESSAGE_MAP()
 BOOL ImageProcessDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
-	MoveWindow(20, 58, 600, 345);
+
+	//다이얼로그 위치
+	MoveWindow(20, 58, WindowWidth, WindowHeight);
+
+	// 화면을 흰색(255)으로 초기화
+	m_image.Create(WindowWidth, -WindowHeight, 8);
+	if (m_image.GetBPP() == 8) {
+		RGBQUAD palette[256];
+		for (int i = 0; i < 256; i++) {
+			palette[i].rgbBlue = palette[i].rgbGreen = palette[i].rgbRed = (BYTE)i;
+			palette[i].rgbReserved = 0;
+		}
+		m_image.SetColorTable(0, 256, palette);
+	}
+	memset(m_image.GetBits(), 255, WindowWidth * WindowHeight);
+
 	return TRUE;  
 }
 
@@ -69,123 +87,79 @@ void ImageProcessDlg::OnDestroy()
 void ImageProcessDlg::OnPaint()
 {
 	CPaintDC dc(this);
-	CBrush blackBrush(RGB(0, 0, 0));
-
-	int LineThickness = GetParentLineThickness();
-	CPen blackPen(PS_SOLID, LineThickness, RGB(0, 0, 0));
-
-	// 큰 원 그리기 (점이 3개일 때만)
-	if (m_Circles.size() == 3)
-	{
-		CBrush* pOldBrush = static_cast<CBrush*>(dc.SelectStockObject(NULL_BRUSH)); // 내부 색 없음
-		CPen* pOldPen = dc.SelectObject(&blackPen);
-
-		dc.Ellipse(m_MainCircle.center.x - m_MainCircle.radius,
-			m_MainCircle.center.y - m_MainCircle.radius,
-			m_MainCircle.center.x + m_MainCircle.radius,
-			m_MainCircle.center.y + m_MainCircle.radius);
-
-		dc.SelectObject(pOldBrush);
-		dc.SelectObject(pOldPen);
+	if (!m_image.IsNull()) {
+		m_image.Draw(dc, 0, 0);
 	}
-
-	// 작은 원 그리기
-	int RadiusOfCircle = GetParentRadiusOfCircle();
-	CPen dotPen(PS_SOLID, 1, RGB(0, 0, 0));
-
-	CBrush* pOldBrush = dc.SelectObject(&blackBrush);
-	CPen* pOldPen = dc.SelectObject(&dotPen);
-
-	for (const auto& circle : m_Circles)
-	{
-		dc.Ellipse(circle.center.x - RadiusOfCircle,
-			circle.center.y - RadiusOfCircle,
-			circle.center.x + RadiusOfCircle,
-			circle.center.y + RadiusOfCircle);
-	}
-
-	// 원래 브러시와 펜 복원
-	dc.SelectObject(pOldBrush);
-	dc.SelectObject(pOldPen);
 }
 
 void ImageProcessDlg::OnLButtonDown(UINT nFlags, CPoint point)
 {
-	// TODO: 여기에 메시지 처리기 코드를 추가 및/또는 기본값을 호출합니다.
+	// 원을 클릭하여 선택
+	m_SelectedCircleIndex = FindClickedCircle(point);
 
-
-	int clickedIndex = FindClickedCircle(point);
-
-	if (clickedIndex != -1) // 기존 점을 클릭한 경우, 드래그 시작
-	{
-		if (clickedIndex >= 0 && clickedIndex < m_Circles.size())
-		{
-			m_bDragging = true;
-			m_SelectedCircleIndex = clickedIndex;
-			m_DragOffset = CPoint(point.x - m_Circles[clickedIndex].center.x,
-				point.y - m_Circles[clickedIndex].center.y);
-		}
+	if (m_SelectedCircleIndex != -1) {
+		m_bDragging = true;
+		// 드래그 시작 시점에 마우스 오프셋을 계산하여 저장 (선택된 원의 중심에서 마우스 포인터까지의 거리)
+		m_DragOffset = point - m_Circles[m_SelectedCircleIndex].center;
 	}
-	else // 새로운 점 추가
-	{
-		if (m_Circles.size() >= 3) // 3개 이상 추가 불가
-		{
-			MessageBox(L"최대 3개의 점만 생성할 수 있습니다!", L"알림", MB_OK | MB_ICONWARNING);
-			return;
-		}
+	else {
+		// 원을 새로 추가
+		if (m_Circles.size() < 3) {
+			Circle newCircle;
+			newCircle.center = point;
+			m_Circles.push_back(newCircle);
 
-		// 새로운 점 추가
-		Circle newCircle;
-		newCircle.center = point;
-		newCircle.radius = GetParentRadiusOfCircle();
-		m_Circles.push_back(newCircle);
+			int nRadius = GetParentRadiusOfCircle();
+			if (nRadius <= 0) nRadius = 5; // 기본값 설정
 
-		if (m_Circles.size() == 3)
-		{
-			CalculateCircle(); // 원 계산
-		}
+			DrawSmallCircle(point.x, point.y, nRadius, 0);
+			Invalidate(FALSE);
 
-		m_bDragging = false;  // 드래그 방지
-		m_SelectedCircleIndex = -1; // 선택 해제
-		Invalidate();
-		UpdateEditControls();
-
-		if (m_Circles.size() == 3)
-		{
-			CGlimDlg* pParent = (CGlimDlg*)GetParent();
-			if (pParent)
-			{
-				pParent->EnableRandMoveButton(TRUE);
+			if (m_Circles.size() == 3) {
+				CalculateCircle(); // 3번째 점을 추가한 즉시 원을 그림
 			}
 		}
 	}
+
+	UpdateEditControls();
 	CDialogEx::OnLButtonDown(nFlags, point);
 }
 
 int ImageProcessDlg::FindClickedCircle(CPoint point)
 {
-	for (int i = m_Circles.size() - 1; i >= 0; --i) // 마지막 원부터 검사
-	{
+	// 마지막 원부터 검사하여 클릭된 원을 찾음
+	for (int i = m_Circles.size() - 1; i >= 0; --i) {
 		int dx = point.x - m_Circles[i].center.x;
 		int dy = point.y - m_Circles[i].center.y;
-		if ((dx * dx + dy * dy) <= (m_Circles[i].radius * m_Circles[i].radius))
-		{
-			return i; // 클릭한 원의 인덱스 반환
+		int radius = GetParentRadiusOfCircle();
+
+		if ((dx * dx + dy * dy) <= (radius * radius)) {
+			return i;
 		}
 	}
-	return -1; // 클릭한 원 없음
+	return -1; // 클릭한 원이 없음
 }
 void ImageProcessDlg::OnMouseMove(UINT nFlags, CPoint point)
 {
-	// TODO: 여기에 메시지 처리기 코드를 추가 및/또는 기본값을 호출합니다.
+	int imageWidth = m_image.GetWidth();
+	int imageHeight = m_image.GetHeight();
 
-	if (m_bDragging && m_SelectedCircleIndex != -1)
-	{
-		m_Circles[m_SelectedCircleIndex].center =
-			CPoint(point.x - m_DragOffset.x, point.y - m_DragOffset.y);
+	// 마우스가 CImage 영역을 벗어나면 드래그 종료
+	if (m_bDragging && m_SelectedCircleIndex != -1) {
+		// x, y축의 최대, 최소값 설정 (20 이상, 최대값은 imageWidth-20, imageHeight-20)
+		int minX = 10;
+		int maxX = imageWidth - 10;
+		int minY = 10;
+		int maxY = imageHeight - 10;
 
-		if (m_Circles.size() == 3)
-		{
+		CPoint constrainedPoint = point;
+		constrainedPoint.x = max(min(constrainedPoint.x, maxX), minX);
+		constrainedPoint.y = max(min(constrainedPoint.y, maxY), minY);
+
+		// 작은 원을 드래그하여 이동
+		m_Circles[m_SelectedCircleIndex].center = constrainedPoint - m_DragOffset;
+
+		if (m_Circles.size() == 3) {
 			CalculateCircle();
 		}
 
@@ -193,24 +167,89 @@ void ImageProcessDlg::OnMouseMove(UINT nFlags, CPoint point)
 		UpdateEditControls();
 	}
 
+	// 마우스가 CImage 영역 밖으로 나가면 드래그 종료 후 그 자리에 원을 그리도록 처리
+	if (m_bDragging) {
+		int minX = 10;
+		int maxX = imageWidth - 10;
+		int minY = 10;
+		int maxY = imageHeight - 10;
+
+		// CImage 영역 밖으로 나가면 드래그 종료
+		if (point.x < minX || point.x > maxX || point.y < minY || point.y > maxY) {
+			m_bDragging = false;
+
+			// 드래그가 종료된 위치에 원을 설정
+			CPoint finalPoint = point;
+			finalPoint.x = max(min(finalPoint.x, maxX), minX);
+			finalPoint.y = max(min(finalPoint.y, maxY), minY);
+
+			m_Circles[m_SelectedCircleIndex].center = finalPoint - m_DragOffset;
+
+			if (m_Circles.size() == 3) {
+				CalculateCircle();
+			}
+
+			Invalidate();
+			UpdateEditControls();
+		}
+	}
+
 	CDialogEx::OnMouseMove(nFlags, point);
 }
 
 void ImageProcessDlg::OnLButtonUp(UINT nFlags, CPoint point)
 {
-	if (m_bDragging)
-	{
-		m_bDragging = false;
-		m_SelectedCircleIndex = -1;
+	int imageWidth = m_image.GetWidth();
+	int imageHeight = m_image.GetHeight();
+
+	// 마우스를 놓았을 때 최종 위치에서 원을 그리도록 처리
+	if (m_bDragging && m_SelectedCircleIndex != -1) {
+		int minX = 10;
+		int maxX = imageWidth - 10;
+		int minY = 10;
+		int maxY = imageHeight - 10;
+
+		// 최종 위치 제한
+		CPoint finalPoint = point;
+		finalPoint.x = max(min(finalPoint.x, maxX), minX);
+		finalPoint.y = max(min(finalPoint.y, maxY), minY);
+
+		m_Circles[m_SelectedCircleIndex].center = finalPoint - m_DragOffset;
+
+		if (m_Circles.size() == 3) {
+			CalculateCircle();
+		}
+
+		Invalidate();
 		UpdateEditControls();
 	}
+
+	m_bDragging = false;
+	m_SelectedCircleIndex = -1;
+
+    CDialogEx* pParentDlg = (CDialogEx*)GetParent();
+    if (m_Circles.size() == 3) {
+        pParentDlg->GetDlgItem(IDC_RAND_MOVE_BTN)->EnableWindow(TRUE);
+    } else {
+        pParentDlg->GetDlgItem(IDC_RAND_MOVE_BTN)->EnableWindow(FALSE);
+    }
+
 	CDialogEx::OnLButtonUp(nFlags, point);
 }
 
-bool ImageProcessDlg::CalculateCircle()
+void ImageProcessDlg::CalculateCircle()
 {
-	if (m_Circles.size() != 3) return false;
+	if (m_Circles.size() != 3) return;
 
+	memset(m_image.GetBits(), 255, WindowWidth * WindowHeight);
+
+	// 작은 원 다시 그리기
+	for (const auto& circle : m_Circles) {
+		int radius = GetParentRadiusOfCircle();
+		DrawSmallCircle(circle.center.x, circle.center.y, radius, 0); 
+	}
+
+	// 큰 원 계산 후 그리기
 	CPoint p1 = m_Circles[0].center;
 	CPoint p2 = m_Circles[1].center;
 	CPoint p3 = m_Circles[2].center;
@@ -228,19 +267,17 @@ bool ImageProcessDlg::CalculateCircle()
 	int c2 = x3 * x3 + y3 * y3 - x1 * x1 - y1 * y1;
 
 	double d = a1 * b2 - a2 * b1;
-	if (d == 0) return false; // 세 점이 일직선이면 원을 만들 수 없음
+	if (d == 0) return; // 세 점이 일직선이면 원을 만들 수 없음
 
 	// 원의 중심 좌표
 	double cx = (c1 * b2 - c2 * b1) / d;
 	double cy = (a1 * c2 - a2 * c1) / d;
+	double r = sqrt((cx - x1) * (cx - x1) + (cy - y1) * (cy - y1)); //반지름
 
-	// 반지름 계산
-	double r = sqrt((cx - x1) * (cx - x1) + (cy - y1) * (cy - y1));
-
-	// 원 정보 저장
-	m_MainCircle.center = CPoint(static_cast<int>(cx), static_cast<int>(cy));
-	m_MainCircle.radius = static_cast<int>(r);
-	return true;
+	// CImage에 큰 원 테두리 그리기
+	int LineThickness = GetParentLineThickness(); //사용자 입력으로 선 굵기 가져오기
+	DrawBigCircle(static_cast<int>(cx), static_cast<int>(cy), static_cast<int>(r), LineThickness, 0);
+	Invalidate(FALSE);
 }
 
 void ImageProcessDlg::UpdateEditControls()
@@ -268,44 +305,33 @@ void ImageProcessDlg::UpdateEditControls()
 
 void ImageProcessDlg::ResetDialog()
 {
-	// 원과 점 데이터 초기화
 	m_Circles.clear();
-	m_bDragging = false;
-	m_SelectedCircleIndex = -1;
+	memset(m_image.GetBits(), 255, WindowWidth * WindowHeight);
+	Invalidate(FALSE);
+	StopRandomMove();
 
-	// 부모 다이얼로그의 Edit Control 초기화
-	CWnd* pParent = GetParent();
-	if (pParent)
-	{
-		pParent->SetDlgItemText(IDC_Point1, L"");
-		pParent->SetDlgItemText(IDC_Point2, L"");
-		pParent->SetDlgItemText(IDC_Point3, L"");
-		pParent->SetDlgItemText(IDC_RAND_MOVE_TIME, L"");
-	}
+	CGlimDlg* pParent = (CGlimDlg*)GetParent();
+	if (!pParent) return;
 
-	// 화면 다시 그리기
-	Invalidate();
-
-	CGlimDlg* pParent_GrimDlg = (CGlimDlg*)GetParent();
-	if (pParent_GrimDlg)
-	{
-		pParent_GrimDlg->EnableRandMoveButton(FALSE);
-	}
-
-	//실행 중인 쓰레드 종료
-	StopRandomMove(); 
+	CString str;
+	str.Format(L"");
+	pParent->SetDlgItemTextW(IDC_Point1, str);
+	pParent->SetDlgItemTextW(IDC_Point2, str);
+	pParent->SetDlgItemTextW(IDC_Point3, str);
+	pParent->SetDlgItemTextW(IDC_RAND_MOVE_TIME, str);
+	pParent->GetDlgItem(IDC_RAND_MOVE_BTN)->EnableWindow(FALSE);
 }
 
 int ImageProcessDlg::GetParentLineThickness()
 {
 	CWnd* pParent = GetParent(); 
-	if (!pParent) return 1; 
+	if (!pParent) return 2; 
 
 	CString strThickness;
 	pParent->GetDlgItemText(IDC_LINE_THICKNESS, strThickness); 
 
 	int thickness = _ttoi(strThickness); 
-	if (thickness <= 0) thickness = 1;  
+	if (thickness <= 1) thickness = 2;  
 
 	return thickness;
 }
@@ -313,13 +339,13 @@ int ImageProcessDlg::GetParentLineThickness()
 int ImageProcessDlg::GetParentRadiusOfCircle()
 {
 	CWnd* pParent = GetParent();
-	if (!pParent) return 1;
+	if (!pParent) return 5;
 
 	CString strRadius;
 	pParent->GetDlgItemText(IDC_RADIUS_OF_CIRCLE, strRadius);
 
 	int Radius = _ttoi(strRadius);
-	if (Radius <= 0) Radius = 1;
+	if (Radius <= 4) Radius = 5;
 
 	return Radius;
 }
@@ -382,3 +408,69 @@ void ImageProcessDlg::RandMove()
 	}
 }
 
+void ImageProcessDlg::DrawSmallCircle(int x, int y, int nRadius, int nColor)
+{
+	int nPitch = m_image.GetPitch();
+	unsigned char* fm = (unsigned char*)m_image.GetBits();
+
+	int nCenterX = x;
+	int nCenterY = y;
+
+	// 다이얼로그 크기 초과 방지
+	int minX = max(0, nCenterX - nRadius);
+	int maxX = min(WindowWidth - 1, nCenterX + nRadius);
+	int minY = max(0, nCenterY - nRadius);
+	int maxY = min(WindowHeight - 1, nCenterY + nRadius);
+
+	for (int j = minY; j <= maxY; j++) {
+		for (int i = minX; i <= maxX; i++) {
+			if (IsInCircle(i, j, nCenterX, nCenterY, nRadius)) {
+				fm[j * nPitch + i] = static_cast<unsigned char>(nColor);
+			}
+		}
+	}
+}
+
+bool ImageProcessDlg::IsInCircle(int i, int j, int nCenterX, int nCenterY, int nRadius)
+{
+	bool bRet = false;
+
+	double dX = i - nCenterX;
+	double dY = j - nCenterY;
+	double dDist = dX * dX + dY * dY;
+
+	if (dDist <= nRadius * nRadius) {
+		bRet = true;
+	}
+
+	return bRet;
+}
+
+void ImageProcessDlg::DrawBigCircle(int centerX, int centerY, int radius, int thickness, int color) {
+	int nPitch = m_image.GetPitch();
+	unsigned char* fm = (unsigned char*)m_image.GetBits();
+
+	// 다이얼로그 크기 초과 방지
+	int minX = max(0, centerX - radius - thickness);
+	int maxX = min(WindowWidth - 1, centerX + radius + thickness);
+	int minY = max(0, centerY - radius - thickness);
+	int maxY = min(WindowHeight - 1, centerY + radius + thickness);
+
+	for (int y = minY; y <= maxY; y++) {
+		for (int x = minX; x <= maxX; x++) {
+			if (IsOnCircleBorder(x, y, centerX, centerY, radius, thickness)) {
+				fm[y * nPitch + x] = static_cast<unsigned char>(color); // 원 테두리 픽셀 설정
+			}
+		}
+	}
+}
+
+// 특정 좌표가 원의 테두리에 속하는지 확인하는 함수 (굵기 고려)
+bool ImageProcessDlg::IsOnCircleBorder(int x, int y, int centerX, int centerY, int radius, int thickness) {
+	int dx = x - centerX;
+	int dy = y - centerY;
+	int distSquared = dx * dx + dy * dy;
+	int outerRadiusSquared = (radius + thickness / 2) * (radius + thickness / 2);
+	int innerRadiusSquared = (radius - thickness / 2) * (radius - thickness / 2);
+	return (distSquared <= outerRadiusSquared && distSquared >= innerRadiusSquared);
+}

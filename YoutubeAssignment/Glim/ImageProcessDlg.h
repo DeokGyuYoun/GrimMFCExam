@@ -31,20 +31,33 @@ public:
 	void RandMove();
 
 private:
+	//다이얼로그 크기
+	int WindowWidth;
+	int WindowHeight;
+
+	//원 그리기
 	struct Circle {
-		CPoint center; // 원의 중심 좌표
-		int radius;    // 반지름
+		CPoint center;					// 원의 중심 좌표
+		int radius;						// 반지름
 	};
-	std::vector<Circle> m_Circles; // 여러 개의 원 저장
-	Circle m_MainCircle; // 3점을 지나는 원
-	int m_SelectedCircleIndex;     // 드래그 중인 원의 인덱스 (-1이면 없음)
-	CPoint m_DragOffset;           // 마우스와 원 중심 간의 거리
-	bool m_bDragging;              // 드래그 상태
+	std::vector<Circle> m_Circles;
+	Circle m_bigCircle;
+	CImage m_image;
+	void DrawSmallCircle(int x, int y, int nRadius, int nColor);
+	void DrawBigCircle(int centerX, int centerY, int radius, int thickness, int color);
+	void CalculateCircle();
+	bool IsOnCircleBorder(int x, int y, int centerX, int centerY, int radius, int thickness);
+	bool IsInCircle(int i, int j, int nCenterX, int nCenterY, int nRadius);
+	int FindClickedCircle(CPoint point);
+
+	//이벤트 처리
+	int m_SelectedCircleIndex;			// 드래그 중인 원의 인덱스 (-1이면 없음)
+	CPoint m_DragOffset;				// 마우스와 원 중심 간의 거리
+	bool m_bDragging;					// 드래그 상태
 	std::atomic<bool> m_bStopThread; 
 	std::thread m_RandomMoveThread;  
 
-	int FindClickedCircle(CPoint point);
-	bool CalculateCircle();
+	//부모 다이얼로그 정보 업데이트
 	void UpdateEditControls();
 	int GetParentLineThickness();
 	int GetParentRadiusOfCircle();

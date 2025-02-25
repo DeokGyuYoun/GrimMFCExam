@@ -122,8 +122,8 @@ BOOL CGlimDlg::OnInitDialog()
 	SetDlgItemText(IDC_Point2, L"");
 	SetDlgItemText(IDC_Point3, L"");
 
-	SetDlgItemText(IDC_LINE_THICKNESS, _T("1"));
-	SetDlgItemText(IDC_RADIUS_OF_CIRCLE, _T("1"));
+	SetDlgItemText(IDC_LINE_THICKNESS, _T("2"));
+	SetDlgItemText(IDC_RADIUS_OF_CIRCLE, _T("5"));
 
 	// 랜덤 이동 버튼 비활성화
 	GetDlgItem(IDC_RAND_MOVE_BTN)->EnableWindow(FALSE); 
